@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+	<title>TwitchPicker</title>
+	<link rel="stylesheet" href="/css/reset.css">
+	<link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+	<header>
+		<img src="../img/icon.png" alt="">
+		<div>TwitchPicker</div>
+	</header>
+	<main>
+		<div>
+			<h1>Добавить новый канал</h1>
+			<div id="addForm" class="block">
+				<input type="text" id="addChannelInput" placeholder="Введите название канала...">
+				<button id="addChannelBtn"></button>
+			</div>
+			<div>
+				<h1>Список отслеживаемых</h1>
+				<div id="addedList"></div>
+			</div>
+		</div>
+		<div>
+			<h1>История действий</h1>
+			<div id="historyList" class="block"></div>
+		</div>
+	</main>
+	<div id="status"></div>
+	<script src="/scripts/options.js"></script>
+</body>
+</html>
