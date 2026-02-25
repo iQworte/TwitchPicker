@@ -1,51 +1,62 @@
 {
-   "short_name": "TP",
-   "author": "Qworte",
-   "background": {
-      "scripts": ["scripts/background.js"],
-      "persistent": true
-   },
-   "description": "Автоматический фарм дропов и поинтов с твитча.\nМы не несем ответственность за сохранность ваших аккаунтов twitch.",
-   "icons": {
+  "manifest_version": 3,
+  "name": "TwitchPicker",
+  "short_name": "TP",
+  "version": "3.0.0",
+  "author": "Qworte",
+  "description": "Автоматический фарм дропов и поинтов с твитча.\nМы не несем ответственность за сохранность ваших аккаунтов twitch.",
+  "icons": {
+    "16": "img/icon.png",
+    "32": "img/icon.png",
+    "48": "img/icon.png",
+    "64": "img/icon.png",
+    "128": "img/icon.png"
+  },
+  "action": {
+    "default_icon": {
       "16": "img/icon.png",
       "32": "img/icon.png",
-      "48": "img/icon.png",
-      "64": "img/icon.png",
-      "128": "img/icon.png"
-   },
-   "options_ui": {
-      "open_in_tab": true,
-      "page": "html/options.html"
-   },
-   "browser_action": {
-      "default_popup": "html/popup.html"
-   },
-   "manifest_version": 2,
-   "name": "TwitchPicker",
-   "permissions": [
-      "storage",
-      "notifications",
-      "background",
-      "<all_urls>",
-      "webRequest",
-      "webRequestBlocking",
-      "webNavigation",
-      "tabs"
-   ],
-   "update_url": "https://clients2.google.com/service/update2/crx",
-   "version": "2.1.0",
-   "content_scripts": [
+      "48": "img/icon.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "html/options.html"
+  },
+  "background": {
+    "service_worker": "scripts/background.js"
+  },
+  "permissions": [
+    "storage",
+    "notifications",
+    "alarms",
+    "sidePanel",
+    "offscreen",
+    "webNavigation",
+    "tabs",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "declarative_net_request": {
+    "rule_resources": [
       {
-         "all_frames": true,
-         "run_at": "document_idle",
-         "matches": ["https://www.twitch.tv/drops/inventory"],
-         "js": ["scripts/drops.js"]
-      },
-      {
-         "all_frames": true,
-         "run_at": "document_idle",
-         "matches": ["https://www.twitch.tv/*"],
-         "js": ["scripts/watcher.js"]
+        "id": "frame_headers",
+        "enabled": true,
+        "path": "rules/frame_headers.json"
       }
-   ]
+    ]
+  },
+  "content_scripts": [
+    {
+      "all_frames": true,
+      "run_at": "document_idle",
+      "matches": ["https://www.twitch.tv/drops/inventory"],
+      "js": ["scripts/drops.js"]
+    },
+    {
+      "all_frames": true,
+      "run_at": "document_idle",
+      "matches": ["https://www.twitch.tv/*"],
+      "js": ["scripts/watcher.js"]
+    }
+  ]
 }

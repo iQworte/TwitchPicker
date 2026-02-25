@@ -1,34 +1,53 @@
-var addedChannels = (typeof chrome.extension.getBackgroundPage().addedChannels != 'undefined') ? chrome.extension.getBackgroundPage().addedChannels : []
-var liveChannels = (typeof chrome.extension.getBackgroundPage().liveChannels != 'undefined') ? chrome.extension.getBackgroundPage().liveChannels : []
+var addedChannels = []
+var liveChannels = []
 
-document.addEventListener('DOMContentLoaded', ()=> {
-	loadAddedList()
-	loadHistory()
+document.addEventListener('DOMContentLoaded', async ()=> {
+	addedChannels = (await getValue('addedChannels')) || []
+	liveChannels = (await getValue('liveChannels')) || []
+	await loadAddedList()
+	await loadHistory()
+	await loadSettings()
+	bindSettingsListeners()
+})
+
+document.querySelector('#settings').addEventListener('click', async ()=> {
+	if (document.querySelector('#settings').hasAttribute('disabled')) return
+	await loadSettings()
+	document.querySelector('#settings_modal').classList.toggle('active')
+})
+
+document.querySelector('#settings_modal').addEventListener('click',  (e)=> {
+	if (e.target.id === 'settings_modal' || e.target.classList.contains('close')) {
+		document.querySelector('#settings_modal').classList.toggle('active')
+	}
 })
 
 let addChannelBtn = document.querySelector('#addChannelBtn')
-addChannelBtn.addEventListener('click', async ()=> {
+document.querySelector('#addForm').addEventListener('submit', async (e)=> {
+	e.preventDefault()
 	if (addChannelBtn.classList.contains('wait')) return
 	addChannelBtn.classList.add('wait')
 	let channelName = document.querySelector('#addChannelInput').value.trim()
-	if (channelName.search(/[А-яЁё]/) != -1) {
+	if (channelName.search(/[А-яЁё]/) !== -1) {
 		log('Название канала не может содержать в себе символы Русского алфавита.', '#de3f3f')
 	} else if (channelName.includes(' ')) {
 		log('Название канала не может содержать в себе пробелы.', '#de3f3f')
-	} else if (channelName != '') {
+	} else if (channelName === '') {
+		log('Название канала не может быть пустым.', '#de3f3f')
+	} else {
 		await addChannel(channelName)
 	}
 	document.querySelector('#addChannelInput').value = ''
 	addChannelBtn.classList.remove('wait')
 })
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse)=> {
+chrome.runtime.onMessage.addListener(async (request, sender, sendResponse)=> {
     sendResponse({farewell: 'Ok'})
-    if (request.event == 'update_live') {
+    if (request.event === 'update_live') {
     	liveChannels = request.live
-    	loadAddedList()
-    } else if (request.event == 'update_hist') {
-    	loadHistory(request.history)
+		await loadAddedList()
+    } else if (request.event === 'update_hist') {
+		await loadHistory(request.history)
     }
 })
 
@@ -37,8 +56,8 @@ async function loadAddedList() {
 	list.textContent = ''
 
 	addedChannels.sort((a, b)=> {
-	    if (liveChannels.some((channel)=> channel.name == a.login) != liveChannels.some((channel)=> channel.name == b.login)) {
-	    	if (liveChannels.some((channel)=> channel.name == a.login)) return -1
+	    if (liveChannels.some((channel)=> channel.name === a.login) !== liveChannels.some((channel)=> channel.name === b.login)) {
+	    	if (liveChannels.some((channel)=> channel.name === a.login)) return -1
 	    	else return 1
 	    }
 		else return 0
@@ -55,7 +74,7 @@ async function loadAddedList() {
 			let nameDiv = document.createElement('div')
 
 			let statusDiv = document.createElement('div')
-			if (liveChannels.some((el)=> el.name == channel.login)) statusDiv.classList.add('status', 'online')
+			if (liveChannels.some((el)=> el.name === channel.login)) statusDiv.classList.add('status', 'online')
 			else statusDiv.classList.add('status', 'offline')
 			nameDiv.append(statusDiv)
 
@@ -105,7 +124,7 @@ async function loadHistory(history) {
 		textDiv.classList.add(hist.style)
 		let textArr = hist.message.split('\n')
 		textArr.forEach((el, i)=> {
-			if (i != 0) textDiv.append(document.createElement('br'))
+			if (i !== 0) textDiv.append(document.createElement('br'))
 			textDiv.append(el)
 		})
 		mainDiv.append(textDiv)
@@ -131,7 +150,7 @@ function getTime(timestamp) {
 
 async function addChannel(name) {
     name = name.toLowerCase()
-    if (addedChannels.some((channel)=> channel.login == name)) {
+    if (addedChannels.some((channel)=> channel.login === name)) {
         log('Канал '+name+' уже присутствует в отслеживаемых.', '#de3f3f')
     } else {
         addedChannels.push({login: name, priority: 0, chatting: false})
@@ -149,7 +168,7 @@ async function addChannel(name) {
 async function updateChatting(name) {
 	let value
     addedChannels.forEach((channel, i)=> {
-    	if (channel.login == name) {
+    	if (channel.login === name) {
     		addedChannels[i].chatting = !channel.chatting
     		value = addedChannels[i].chatting 
     	}
@@ -162,18 +181,18 @@ async function updateChatting(name) {
 }
 
 async function removeChannel(name) {
-    addedChannels = addedChannels.filter((channel)=> channel.login != name)
-    setValue('addedChannels', addedChannels)
+    addedChannels = addedChannels.filter((channel)=> channel.login !== name)
+	await setValue('addedChannels', addedChannels)
     log('Канал '+name+' удален из отслеживаемых.', '#4bb675')
     chrome.runtime.sendMessage({event: 'del_channel', login: name})
     document.getElementById(name).remove()
     let list = document.querySelectorAll('#addedList > div')
-    if (list.length == 0) {
+    if (list.length === 0) {
     	let mainDiv = document.createElement('div')
 		mainDiv.textContent = 'Список пока пуст...'
 		document.querySelector('#addedList').append(mainDiv)
     }
-    loadHistory()
+	await loadHistory()
 }
 
 function log(text, color) {
@@ -185,12 +204,11 @@ function log(text, color) {
 	setTimeout(()=> textDiv.remove(), 5000)
 }
 
-async function setValue(key, value, updateStatus) {
+async function setValue(key, value) {
     return new Promise((resolve)=> {
         chrome.storage.local.set({[key]: value}, (data)=> {
             if (chrome.runtime.lastError) {
                 console.log('Ошибка сохранение данных')
-                reject(chrome.runtime.lastError)
             } else {
                 resolve(data)
             }
@@ -203,10 +221,69 @@ async function getValue(name) {
         chrome.storage.local.get(name, (data)=> {
             if (chrome.runtime.lastError) {
                 console.log('Ошибка получения сохраненных данных')
-                reject(chrome.runtime.lastError)
             } else {
                 resolve(data[name])
             }
         })
     })
+}
+
+const DEFAULT_SETTINGS = {
+	notifications: { active: true, volume: 0.5 },
+	chat: { min_interval: 500000, max_interval: 950000 },
+	drops: { active: true }
+}
+
+function normalizeSettings(settings) {
+	if (!settings) return { ...DEFAULT_SETTINGS }
+	if (settings.notifications && typeof settings.notifications.sound === 'boolean') {
+		settings.notifications.volume = settings.notifications.sound ? 0.5 : 0
+		delete settings.notifications.sound
+	}
+	return settings
+}
+
+async function loadSettings() {
+	let settings = await getValue('settings')
+	settings = normalizeSettings(settings)
+	if (settings == null) settings = DEFAULT_SETTINGS
+	document.querySelector('#chatMinSec').value = Math.round(settings.chat.min_interval / 1000)
+	document.querySelector('#chatMaxSec').value = Math.round(settings.chat.max_interval / 1000)
+	document.querySelector('#notificationsEnabled').checked = settings.notifications.active
+	let vol = Math.round((settings.notifications.volume != null ? settings.notifications.volume : 0.5) * 100)
+	document.querySelector('#notificationVolume').value = vol
+	document.querySelector('#notificationVolumeValue').textContent = vol
+	document.querySelector('#dropsEnabled').checked = settings.drops.active
+}
+
+function bindSettingsListeners() {
+	document.querySelector('#notificationVolume').addEventListener('input', ()=> {
+		document.querySelector('#notificationVolumeValue').textContent = document.querySelector('#notificationVolume').value
+	})
+
+	async function saveSettingsFromForm() {
+		let settings = await getValue('settings')
+		settings = normalizeSettings(settings)
+		if (settings == null) settings = { ...DEFAULT_SETTINGS }
+		let minSec = parseInt(document.querySelector('#chatMinSec').value, 10)
+		let maxSec = parseInt(document.querySelector('#chatMaxSec').value, 10)
+		settings.chat = {
+			min_interval: (minSec > 0 ? minSec : 500) * 1000,
+			max_interval: (maxSec > 0 ? maxSec : 950) * 1000
+		}
+		let vol = parseInt(document.querySelector('#notificationVolume').value, 10)
+		settings.notifications = {
+			active: document.querySelector('#notificationsEnabled').checked,
+			volume: vol / 100
+		}
+		settings.drops = { active: document.querySelector('#dropsEnabled').checked }
+		await setValue('settings', settings)
+		chrome.runtime.sendMessage({ event: 'settings_changed', settings })
+	}
+
+	document.querySelector('#chatMinSec').addEventListener('change', saveSettingsFromForm)
+	document.querySelector('#chatMaxSec').addEventListener('change', saveSettingsFromForm)
+	document.querySelector('#notificationsEnabled').addEventListener('change', saveSettingsFromForm)
+	document.querySelector('#notificationVolume').addEventListener('change', saveSettingsFromForm)
+	document.querySelector('#dropsEnabled').addEventListener('change', saveSettingsFromForm)
 }

@@ -7,21 +7,37 @@ try {
 	isFramed = false
 }
 
-if (isFramed) {						                 
-	console.log('Пытаюсь собрать дропы...')
-	collectDrops()
+if (isFramed) {
 	setTimeout(()=> location.reload(), 300000)
+	initDrops()
+}
+
+async function getValue(name) {
+	return new Promise((resolve)=> {
+		chrome.storage.local.get(name, (data)=> {
+			if (chrome.runtime.lastError) resolve(null)
+			else resolve(data[name])
+		})
+	})
+}
+
+async function initDrops() {
+	let settings = await getValue('settings')
+	if (!settings || !settings.drops || !settings.drops.active) return
+	collectDrops()
 }
 
 function collectDrops() {
-	let btns = document.querySelectorAll('[data-test-selector="DropsCampaignInProgressRewardPresentation-claim-button"]')
-	if (btns.length > 0) {
-		btns.forEach((btn)=> {
-			let name = btn.parentElement.parentElement.parentElement.parentElement.querySelector('.CoreText-sc-1txzju1-0').textContent
-			chrome.runtime.sendMessage({event: 'drops', name: name})
-			btn.click()
-		})
-	} else {
-		setTimeout(()=> collectDrops(), 5000)
-	}
+	console.log('Пытаюсь собрать дропы...')
+
+	let btns = document.querySelectorAll('.tw-tower [class*=ScCoreButton-sc]')
+	btns.forEach((btn)=> {
+		if (btn.parentElement.hasAttribute('aria-describedby')) return
+		console.log('Нажимаю на', btn, btn.textContent)
+		let name = btn.parentElement.parentElement.parentElement.parentElement.querySelector('[class*=CoreText-sc]').textContent
+		chrome.runtime.sendMessage({event: 'drops', name: name})
+		btn.click()
+	})
+
+	setTimeout(collectDrops, 5000)
 }

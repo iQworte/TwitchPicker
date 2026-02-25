@@ -15,17 +15,19 @@ var dictionary,
 async function init() {
 	streamer = location.href.split('/')[3]
 	let addedChannels = await getValue('addedChannels')
-	if (!addedChannels.some((channel)=> channel.login == streamer)) return
+	if (!addedChannels.some((channel)=> channel.login === streamer)) return
 	dictionary = await getValue('dictionary')
 
-	chat()
 	mutePlayer()
+
 	setInterval(()=> {
-		if (!document.querySelector('.ScCoreButton-sc-1qn4ixc-0.ScCoreButtonSuccess-sc-1qn4ixc-5')) return
-		document.querySelector('.ScCoreButton-sc-1qn4ixc-0.ScCoreButtonSuccess-sc-1qn4ixc-5').click()
-		let balance = document.querySelector('[data-test-selector="balance-string"] > .ScAnimatedNumber-sc-acnd2k-0').textContent
+		if (!document.querySelector('[class*="claimable-bonus"]')) return
+		document.querySelector('[class*="claimable-bonus"]').click()
+		let balance = document.querySelector('[data-test-selector="copo-balance-string"]').textContent
 		chrome.runtime.sendMessage({event: 'points', login: streamer, balance: balance})
 	}, 5000)
+
+	chat()
 }
 
 async function chat() {
@@ -54,7 +56,7 @@ async function chat() {
 	        	sendMessage()
 	        } else if (event.data == 'PING :tmi.twitch.tv\r\n') {
 	        	socket.send('PONG')
-	        	setTimeout(socket.send('PING'), 25000)
+	        	setTimeout(()=> socket.send('PING'), 25000)
 	        }
 	    }
 	    socket.onclose = (event)=> {
@@ -66,11 +68,16 @@ async function chat() {
 
 	
 	async function sendMessage() {
-		await sleep(randomInt(500000, 950000))
+		let settings = await getValue('settings')
+		let minMs = (settings && settings.chat) ? settings.chat.min_interval : 500000
+		let maxMs = (settings && settings.chat) ? settings.chat.max_interval : 950000
+		await sleep(randomInt(minMs, maxMs))
 		let addedChannels = await getValue('addedChannels')
-		let chatting = addedChannels.filter((channel)=> {
-		    if (channel.login == streamer) return channel.chatting
+		let chatting = false
+		addedChannels.forEach((channel)=> {
+		    if (channel.login === streamer) chatting = channel.chatting
 		})
+
 		if (!chatting || !connetion) return
 		let phrase = dictionary[randomInt(0, dictionary.length-1)]
 		socket.send('@client-nonce='+genStr(32)+' PRIVMSG #'+streamer+' :'+phrase)

@@ -4,6 +4,9 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 	<title>TwitchPicker</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 	<link rel="stylesheet" href="/css/reset.css">
 	<link rel="stylesheet" href="/css/main.css">
 </head>
@@ -11,14 +14,15 @@
 	<header>
 		<img src="../img/icon.png" alt="">
 		<div>TwitchPicker</div>
+		<img id="settings" src="../img/settings.svg" alt="settings">
 	</header>
 	<main>
 		<div>
 			<h1>Добавить новый канал</h1>
-			<div id="addForm" class="block">
+			<form id="addForm" class="block">
 				<input type="text" id="addChannelInput" placeholder="Введите название канала...">
-				<button id="addChannelBtn"></button>
-			</div>
+				<button type="submit" id="addChannelBtn"></button>
+			</form>
 			<div>
 				<h1>Список отслеживаемых</h1>
 				<div id="addedList"></div>
@@ -29,6 +33,36 @@
 			<div id="historyList" class="block"></div>
 		</div>
 	</main>
+	<div id="settings_modal">
+		<div class="modal">
+			<div class="head">
+				<div class="title">НАСТРОЙКИ</div>
+				<button class="close"></button>
+			</div>
+			<div class="body">
+				<div class="setting-row setting-row_checkbox">
+					<label for="notificationsEnabled">Уведомления включены</label>
+					<input type="checkbox" id="notificationsEnabled" checked>
+				</div>
+				<div class="setting-row">
+					<label for="notificationVolume">Громкость уведомлений: <span id="notificationVolumeValue">50</span>%</label>
+					<input type="range" id="notificationVolume" min="0" max="100" value="50" step="1">
+				</div>
+				<div class="setting-row setting-row_checkbox">
+					<label for="dropsEnabled">Авто-сбор дропов</label>
+					<input type="checkbox" id="dropsEnabled" checked>
+				</div>
+                <div class="setting-row">
+                    <label>Частота авто-чата (сек)</label>
+                    <div class="setting-inputs">
+                        <input type="number" id="chatMinSec" min="1" step="1" placeholder="мин">
+                        <span>—</span>
+                        <input type="number" id="chatMaxSec" min="1" step="1" placeholder="макс">
+                    </div>
+                </div>
+			</div>
+		</div>
+	</div>
 	<div id="status"></div>
 	<script src="/scripts/options.js"></script>
 </body>

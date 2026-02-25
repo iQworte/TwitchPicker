@@ -1,49 +1,72 @@
 var addedChannels,
-    liveChannels
+    liveChannels,
+    settings
 
-document.addEventListener('DOMContentLoaded', async ()=> {
+const OFFSCREEN_PATH = 'html/offscreen.html'
+
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {})
+
+chrome.runtime.onInstalled.addListener(async (details) => {
+    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {})
     await init()
-    setInterval(poller, 60000)
-    poller()
-    let iframe = document.createElement('iframe')
-    iframe.id = 'iframe-drops'
-    iframe.src = 'https://www.twitch.tv/drops/inventory'
-    document.querySelector('body').append(iframe)
-})
-
-chrome.runtime.onInstalled.addListener(async (details)=> {
-    if (details.reason == 'install') {
+    await ensureOffscreenDocument()
+    await poller()
+    chrome.alarms.create('poller', { periodInMinutes: 1 })
+    if (details.reason === 'install') {
         await pushHist('Расширение успешно установлено.', 'info')
-        chrome.runtime.openOptionsPage()
+        try {
+            const win = await chrome.windows.getLastFocused()
+            if (win) await chrome.sidePanel.open({ windowId: win.id })
+        } catch (e) {}
     }
 })
 
-async function sendNotification(title, message, sound = 'notif') {
-    message = String(message)
-    console.log(title, message)
-    let audio = new Audio('audio/'+sound+'.mp3')
-    audio.volume = 0.5
-    audio.play()
-    let notification = {
-        type: 'basic',
-        iconUrl: 'img/icon.png',
-        title: title,
-        message: message,
-        silent: true
-    }
-    chrome.notifications.create('', notification, ()=> {})
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+    if (alarm.name === 'poller') await poller()
+})
+
+async function ensureOffscreenDocument() {
+    const existing = await chrome.runtime.getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT'],
+        documentUrls: [chrome.runtime.getURL(OFFSCREEN_PATH)]
+    })
+    if (existing.length > 0) return
+    await chrome.offscreen.createDocument({
+        url: OFFSCREEN_PATH,
+        reasons: ['IFRAME_SCRIPTING'],
+        justification: 'Background Twitch streams and drops inventory iframes'
+    })
 }
 
 async function init() {
     addedChannels = await getValue('addedChannels')
     if (addedChannels == null) await setValue('addedChannels', [])
 
-    let dictionary = await getDictionary()
+    settings = await getValue('settings')
+    if (settings == null) await setValue('settings', {
+        notifications: { active: true, volume: 0.5 },
+        chat: { min_interval: 500000, max_interval: 950000 },
+        drops: { active: true }
+    })
+
+    const dictionary = await getDictionary()
     await setValue('dictionary', dictionary)
 }
 
+async function getDictionary() {
+    const url = chrome.runtime.getURL('dictionary.json')
+    const response = await fetch(url)
+    try {
+        const data = await response.json()
+        return response.ok ? data : []
+    } catch {
+        return []
+    }
+}
+
 async function poller() {
-    console.log('Проверяю каналы:', addedChannels)
+    addedChannels = await getValue('addedChannels')
+    if (!addedChannels || !addedChannels.length) return
     try {
         await checkStreamersStatus()
     } catch (e) {
@@ -51,94 +74,82 @@ async function poller() {
     }
 }
 
-async function getDictionary() {
-    let response = await fetch('chrome-extension://'+chrome.runtime.id+'/dictionary.json')
-    try {
-        let data = await response.json()
-        if (!response.ok) return []
-        else return data
-    } catch {
-        return []
-    }
-}
-
 async function checkStreamersStatus() {
-    let usernames = []
-    addedChannels.forEach((channel)=> usernames.push(channel.login))
-    let response = await fetch('https://twitch.theorycraft.gg/channel-status', {
+    const usernames = addedChannels.map((ch) => ch.login)
+    const response = await fetch('https://twitch.theorycraft.gg/channel-status', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({channels: usernames}),
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ channels: usernames })
     })
-
+    const json = await response.json()
+    const prevLiveList = await getValue('liveChannels')
+    const prevLive = Array.isArray(prevLiveList) ? prevLiveList.map((c) => c.name) : []
     liveChannels = []
-    response = await response.json()
-    for (key in response) liveChannels.push({ name: key, title: response[key].game+' - '+response[key].title })
-    chrome.runtime.sendMessage({event: 'update_live', live: liveChannels})
+    for (const key in json) {
+        liveChannels.push({ name: key, title: json[key].game + ' - ' + json[key].title })
+    }
+    const newLiveNames = liveChannels.map((c) => c.name)
+    for (const ch of liveChannels) {
+        if (!prevLive.includes(ch.name)) {
+            const message = 'Канал ' + ch.name + ' сейчас активен.\n' + ch.title + '\nФоновое подключение...'
+            await sendNotification(chrome.runtime.getManifest().name, message)
+            await pushHist(message)
+        }
+    }
+    for (const name of prevLive) {
+        if (!newLiveNames.includes(name)) {
+            const message = 'Трансляция ' + name + ' была остановлена.\nОтключаюсь от фонового просмотра...'
+            await sendNotification(chrome.runtime.getManifest().name, message)
+            await pushHist(message)
+        }
+    }
+    await setValue('liveChannels', liveChannels)
+    chrome.runtime.sendMessage({ event: 'update_live', live: liveChannels })
     console.log('Сейчас стримят:', liveChannels)
-    let frames = document.querySelectorAll('iframe:not([id="iframe-drops"])')
-    checkOfflineStreams(frames, liveChannels)
-    connectToStreams(liveChannels)
+
+    await ensureOffscreenDocument()
+    chrome.runtime.sendMessage({
+        event: 'offscreen_sync',
+        liveChannels,
+        dropsActive: settings && settings.drops && settings.drops.active
+    })
 }
 
-//Создаем фоновое подключение если стример онлайн
-async function connectToStreams(liveChannels, i = 0) {
-    if (liveChannels.length == 0) return
-    if (!document.querySelector('#iframe-'+liveChannels[i].name)) {
-        let message = 'Канал '+liveChannels[i].name+' сейчас активен.\n'+liveChannels[i].title+'\nФоновое подключение...'
-        sendNotification(chrome.runtime.getManifest().name, message)
-        let iframe = document.createElement('iframe')
-        iframe.id = 'iframe-'+liveChannels[i].name
-        iframe.src = 'https://www.twitch.tv/'+liveChannels[i].name
-        document.querySelector('body').append(iframe)
-        pushHist(message)
+async function sendNotification(title, message, sound = 'notif') {
+    message = String(message)
+    console.log(title, message)
+    if (!settings || !settings.notifications || !settings.notifications.active) return
+    const volume = settings.notifications.volume != null ? settings.notifications.volume : 0.5
+    const notification = {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('img/icon.png'),
+        title,
+        message,
+        silent: true
     }
-    if (i < liveChannels.length-1) {
-        setTimeout(()=> connectToStreams(liveChannels, ++i), 2000)
-    }
-}
-
-//Проверка ушел ли стример в оффлайн
-async function checkOfflineStreams(frames, liveChannels, i = 0) {
-    if (!frames.length) return
-    console.log(frames[i])
-    let iframeName = frames[i].id.split('-')[1]
-    if (!liveChannels.some((elem)=> elem.name == iframeName)) {
-        let message = 'Трансляция '+iframeName+' была остановлена.\nОтключаюсь от фонового просмотра...'
-        sendNotification(chrome.runtime.getManifest().name, message)
-        document.querySelector('#iframe-'+iframeName).remove()
-        pushHist(message)
-    }
-    if (i < frames.length-1) {
-        setTimeout(()=> checkOfflineStreams(frames, liveChannels, ++i), 2000)
+    chrome.notifications.create('', notification, () => {
+        if (chrome.runtime.lastError) console.warn('Notification:', chrome.runtime.lastError.message)
+    })
+    if (volume > 0) {
+        await ensureOffscreenDocument()
+        chrome.runtime.sendMessage({ event: 'playSound', sound, volume })
     }
 }
 
 async function setValue(key, value) {
-    return new Promise((resolve)=> {
-        chrome.storage.local.set({[key]: value}, (data)=> {
-            if (chrome.runtime.lastError) {
-                console.log('Ошибка сохранение данных')
-                reject(chrome.runtime.lastError)
-            } else {
-                resolve(data)
-            }
+    return new Promise((resolve) => {
+        chrome.storage.local.set({ [key]: value }, () => {
+            if (chrome.runtime.lastError) console.log('Ошибка сохранение данных')
+            resolve()
         })
     })
 }
 
 async function getValue(name) {
-    return new Promise((resolve)=> {
-        chrome.storage.local.get(name, (data)=> {
-            if (chrome.runtime.lastError) {
-                console.log('Ошибка получения сохраненных данных')
-                reject(chrome.runtime.lastError)
-            } else {
-                resolve(data[name])
-            }
+    return new Promise((resolve) => {
+        chrome.storage.local.get(name, (data) => {
+            if (chrome.runtime.lastError) console.log('Ошибка получения сохраненных данных')
+            resolve(data[name])
         })
     })
 }
@@ -146,55 +157,88 @@ async function getValue(name) {
 async function pushHist(message, style = 'default') {
     let history = await getValue('history')
     if (history == null) history = []
-    let time = new Date().getTime()
-    history.push({date: time, message: message, style: style})
+    history.push({ date: Date.now(), message, style })
     while (history.length > 1000) history.shift()
-    setValue('history', history)
-    chrome.runtime.sendMessage({event: 'update_hist', history: history})
+    await setValue('history', history)
+    chrome.runtime.sendMessage({ event: 'update_hist', history })
 }
 
-chrome.storage.onChanged.addListener((changes, namespace)=> {
-    for (let key in changes) {
-        let storageChange = changes[key]
-        if (key == 'addedChannels') addedChannels = storageChange.newValue
+chrome.storage.onChanged.addListener(async (changes) => {
+    for (const key in changes) {
+        const storageChange = changes[key]
+        if (key === 'addedChannels') addedChannels = storageChange.newValue
+        if (key === 'settings') {
+            settings = storageChange.newValue
+            await ensureOffscreenDocument()
+            chrome.runtime.sendMessage({
+                event: 'offscreen_sync',
+                liveChannels: liveChannels || [],
+                dropsActive: settings && settings.drops && settings.drops.active
+            })
+        }
     }
 })
 
-chrome.webRequest.onHeadersReceived.addListener((details)=> {
-    if (details.frameId <= 0) return {}
-    let headers = details.responseHeaders
-    let newHeaders = []
-    for (let i = 0; i < headers.length; i++) {
-        let header = headers[i].name.toLowerCase()
-        if (header == 'x-frame-options') continue
-        if (header == 'strict-transport-security') headers[i].value = 'max-age=0'
-        newHeaders.push(headers[i])
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.event === 'offscreen_ready') {
+        chrome.runtime.sendMessage({
+            event: 'offscreen_sync',
+            liveChannels: liveChannels || [],
+            dropsActive: settings && settings.drops && settings.drops.active
+        })
+        sendResponse({ farewell: 'Ok' })
+        return true
     }
-    return {'responseHeaders': newHeaders}
-}, {'urls': ['<all_urls>']}, ['blocking', 'responseHeaders'])
-
-chrome.runtime.onMessage.addListener(async (request, sender, sendResponse)=> {
-    sendResponse({farewell: 'Ok'})
-    if (request.event == 'drops') {
-        let message = 'Новый дроп '+request.name+' успешно активирован.'
-        sendNotification(chrome.runtime.getManifest().name, message, 'extra')
-        pushHist(message, 'drops')
-    } else if (request.event == 'points') {
-        pushHist('Очки с канала '+request.login+' были собраны.\nВаш баланс: '+request.balance, 'points')
-    } else if (request.event == 'chatting') {
-        pushHist('На канал '+request.login+' было отправлено сообщение: "'+request.phrase+'"', 'hint')
-    } else if (request.event == 'chatting_change') {
-        if (request.value) pushHist('Сестема чат-бота для канала '+request.login+' была включена.', 'info')
-        else pushHist('Сестема чат-бота для канала '+request.login+' была отключена.', 'info')
-    } else if (request.event == 'add_channel') {
-        pushHist('Канал '+request.login+' успешно добавлен в отслеживаемые.', 'info')
+    if (request.event === 'settings_changed' && request.settings) {
+        settings = request.settings
+        ensureOffscreenDocument().then(() => {
+            chrome.runtime.sendMessage({
+                event: 'offscreen_sync',
+                liveChannels: liveChannels || [],
+                dropsActive: settings && settings.drops && settings.drops.active
+            })
+        })
+        sendResponse({ farewell: 'Ok' })
+        return true
+    }
+    if (request.event === 'drops') {
+        sendNotification(chrome.runtime.getManifest().name, 'Новый дроп ' + request.name + ' успешно активирован.', 'extra')
+        pushHist('Новый дроп ' + request.name + ' успешно активирован.', 'drops')
+        sendResponse({ farewell: 'Ok' })
+        return true
+    }
+    if (request.event === 'points') {
+        pushHist('Очки с канала ' + request.login + ' были собраны.\nВаш баланс: ' + request.balance, 'points')
+        sendResponse({ farewell: 'Ok' })
+        return true
+    }
+    if (request.event === 'chatting') {
+        pushHist('На канал ' + request.login + ' было отправлено сообщение: "' + request.phrase + '"', 'hint')
+        sendResponse({ farewell: 'Ok' })
+        return true
+    }
+    if (request.event === 'chatting_change') {
+        pushHist(
+            'Сестема чат-бота для канала ' + request.login + ' была ' + (request.value ? 'включена' : 'отключена') + '.',
+            'info'
+        )
+        sendResponse({ farewell: 'Ok' })
+        return true
+    }
+    if (request.event === 'add_channel') {
+        pushHist('Канал ' + request.login + ' успешно добавлен в отслеживаемые.', 'info')
         poller()
-    } else if (request.event == 'del_channel') {
-        if (document.querySelector('#iframe-'+request.login)) {
-            pushHist('Канал '+request.login+' удален из отслеживаемых.\nОтключаюсь от фонового просмотра...', 'info')
-            document.querySelector('#iframe-'+request.login).remove()
-        } else {
-            pushHist('Канал '+request.login+' удален из отслеживаемых.', 'info')
-        }
+        sendResponse({ farewell: 'Ok' })
+        return true
     }
+    if (request.event === 'del_channel') {
+        pushHist('Канал ' + request.login + ' удален из отслеживаемых.', 'info')
+        ensureOffscreenDocument().then(() => {
+            chrome.runtime.sendMessage({ event: 'offscreen_remove_iframe', name: request.login })
+        })
+        sendResponse({ farewell: 'Ok' })
+        return true
+    }
+    sendResponse({ farewell: 'Ok' })
+    return true
 })
