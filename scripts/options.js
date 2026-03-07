@@ -1,5 +1,7 @@
 var addedChannels = []
 var liveChannels = []
+var chatNextAt = {}
+var chatTimerInterval = null
 
 document.addEventListener('DOMContentLoaded', async ()=> {
 	addedChannels = (await getValue('addedChannels')) || []
@@ -8,6 +10,12 @@ document.addEventListener('DOMContentLoaded', async ()=> {
 	await loadHistory()
 	await loadSettings()
 	bindSettingsListeners()
+	chatNextAt = (await getValue('chatNextAt')) || {}
+	chatTimerInterval = setInterval(updateChatTimers, 1000)
+	chrome.storage.onChanged.addListener((changes, area) => {
+		if (area === 'local' && changes.chatNextAt && changes.chatNextAt.newValue)
+			chatNextAt = changes.chatNextAt.newValue
+	})
 })
 
 document.querySelector('#settings').addEventListener('click', async ()=> {
@@ -51,9 +59,27 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse)=> {
     }
 })
 
+function formatChatCountdown(nextAt) {
+	if (!nextAt) return '—:—'
+	let left = Math.max(0, Math.floor((nextAt - Date.now()) / 1000))
+	let m = Math.floor(left / 60)
+	let s = left % 60
+	let mm = String(m).padStart(2, '0')
+	let ss = String(s).padStart(2, '0')
+	return mm + ':' + ss
+}
+
+function updateChatTimers() {
+	document.querySelectorAll('.chat-timer').forEach((el) => {
+		let login = el.dataset.login
+		el.textContent = formatChatCountdown(chatNextAt[login])
+	})
+}
+
 async function loadAddedList() {
 	let list = document.querySelector('#addedList')
 	list.textContent = ''
+	chatNextAt = (await getValue('chatNextAt')) || {}
 
 	addedChannels.sort((a, b)=> {
 	    if (liveChannels.some((channel)=> channel.name === a.login) !== liveChannels.some((channel)=> channel.name === b.login)) {
@@ -86,26 +112,58 @@ async function loadAddedList() {
 
 			mainDiv.append(nameDiv)
 
+			let actionsWrap = document.createElement('div')
+			actionsWrap.className = 'channel-actions-wrap'
+			if (channel.chatting) {
+				let timerDiv = document.createElement('div')
+				timerDiv.className = 'chat-timer'
+				timerDiv.dataset.login = channel.login
+				timerDiv.textContent = formatChatCountdown(chatNextAt[channel.login])
+				actionsWrap.append(timerDiv)
+			}
+			let actionsDiv = document.createElement('div')
+			actionsDiv.className = 'channel-actions'
+
+			const isLive = liveChannels.some((el) => el.name === channel.login)
+			if (isLive) {
+				let reloadStreamBtn = document.createElement('img')
+				reloadStreamBtn.src = '/img/reload.svg'
+				reloadStreamBtn.className = 'reload-stream-btn'
+				reloadStreamBtn.title = 'Перезагрузить фоновый просмотр'
+				reloadStreamBtn.addEventListener('click', async () => {
+					if (reloadStreamBtn.classList.contains('wait')) return
+					reloadStreamBtn.classList.add('wait')
+					chrome.runtime.sendMessage({ event: 'offscreen_reload_iframe', name: channel.login })
+					setTimeout(() => reloadStreamBtn.classList.remove('wait'), 800)
+				})
+				actionsDiv.append(reloadStreamBtn)
+			}
+
 			let chattingBtn = document.createElement('img')
 			chattingBtn.src = (channel.chatting) ? '/img/chatting.svg' : '/img/!chatting.svg'
+			chattingBtn.title = 'Включить или выключить авто-чат на этом канале'
 			chattingBtn.addEventListener('click', async ()=> {
 				if (chattingBtn.classList.contains('wait')) return
 				chattingBtn.classList.add('wait')
 				let chatting = await updateChatting(channel.login)
 				chattingBtn.src = (chatting) ? '/img/chatting.svg' : '/img/!chatting.svg'
 				chattingBtn.classList.remove('wait')
+				await loadAddedList()
 			})
-			mainDiv.append(chattingBtn)
+			actionsDiv.append(chattingBtn)
 
 			let delButton = document.createElement('button')
+			delButton.title = 'Удалить канал из списка'
 			delButton.addEventListener('click', async ()=> {
 				if (delButton.classList.contains('wait')) return
 				delButton.classList.add('wait')
 				await removeChannel(channel.login)
 				delButton.classList.remove('wait')
 			})
-			mainDiv.append(delButton)
+			actionsDiv.append(delButton)
 
+			actionsWrap.append(actionsDiv)
+			mainDiv.append(actionsWrap)
 
 			list.append(mainDiv)
 		})
@@ -286,4 +344,28 @@ function bindSettingsListeners() {
 	document.querySelector('#notificationsEnabled').addEventListener('change', saveSettingsFromForm)
 	document.querySelector('#notificationVolume').addEventListener('change', saveSettingsFromForm)
 	document.querySelector('#dropsEnabled').addEventListener('change', saveSettingsFromForm)
+
+	const reloadDictionaryBtn = document.querySelector('#reloadDictionaryBtn')
+	reloadDictionaryBtn.addEventListener('click', async () => {
+		if (reloadDictionaryBtn.classList.contains('wait')) return
+		reloadDictionaryBtn.classList.add('wait')
+		reloadDictionaryBtn.textContent = 'Загрузка…'
+		chrome.runtime.sendMessage({ event: 'reload_dictionary' }, (response) => {
+			reloadDictionaryBtn.classList.remove('wait')
+			reloadDictionaryBtn.textContent = 'Перезагрузить словарь'
+			if (chrome.runtime.lastError) {
+				log('Ошибка перезагрузки словаря.', '#de3f3f')
+				return
+			}
+			if (response && response.success) {
+				log('Словарь перезагружен. Фраз в словаре: ' + (response.count ?? '?'), '#4bb675')
+			} else {
+				log('Ошибка перезагрузки словаря.', '#de3f3f')
+			}
+		})
+	})
+
+	document.querySelector('#viewDictionaryBtn').addEventListener('click', () => {
+		chrome.tabs.create({ url: chrome.runtime.getURL('dictionary.json') })
+	})
 }

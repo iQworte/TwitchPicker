@@ -217,7 +217,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ farewell: 'Ok' })
         return true
     }
+    if (request.event === 'chat_next_at' && request.login != null && request.nextAt != null) {
+        getValue('chatNextAt').then((prev) => {
+            const next = { ...(prev || {}), [request.login]: request.nextAt }
+            setValue('chatNextAt', next)
+        })
+        sendResponse({ farewell: 'Ok' })
+        return true
+    }
     if (request.event === 'chatting_change') {
+        getValue('chatNextAt').then((prev) => {
+            if (prev && prev[request.login] !== undefined) {
+                const next = { ...prev }
+                delete next[request.login]
+                setValue('chatNextAt', next)
+            }
+        })
+        if (request.value) {
+            chrome.runtime.sendMessage({ event: 'chatting_enabled', login: request.login })
+        }
         pushHist(
             'Сестема чат-бота для канала ' + request.login + ' была ' + (request.value ? 'включена' : 'отключена') + '.',
             'info'
@@ -237,6 +255,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             chrome.runtime.sendMessage({ event: 'offscreen_remove_iframe', name: request.login })
         })
         sendResponse({ farewell: 'Ok' })
+        return true
+    }
+    if (request.event === 'offscreen_reload_iframe' && request.name) {
+        ensureOffscreenDocument().then(() => {
+            chrome.runtime.sendMessage({ event: 'offscreen_reload_iframe', name: request.name })
+        })
+        sendResponse({ farewell: 'Ok' })
+        return true
+    }
+    if (request.event === 'reload_dictionary') {
+        ;(async () => {
+            try {
+                const dictionary = await getDictionary()
+                await setValue('dictionary', dictionary)
+                const tabs = await chrome.tabs.query({ url: 'https://www.twitch.tv/*' })
+                for (const tab of tabs) {
+                    if (tab.id) chrome.tabs.sendMessage(tab.id, { event: 'dictionary_reloaded' }).catch(() => {})
+                }
+                chrome.runtime.sendMessage({ event: 'dictionary_reloaded', success: true, count: dictionary.length })
+                sendResponse({ success: true, count: dictionary.length })
+            } catch (e) {
+                sendResponse({ success: false, error: e && e.message })
+            }
+        })()
         return true
     }
     sendResponse({ farewell: 'Ok' })

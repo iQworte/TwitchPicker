@@ -10,7 +10,28 @@ window.onload = ()=> {
 }
 
 var dictionary,
-	streamer
+	streamer,
+	triggerSendMessage = null,
+	startChatWhenReady = false
+
+function onChattingEnabled() {
+	if (typeof triggerSendMessage === 'function') triggerSendMessage()
+	else startChatWhenReady = true
+}
+
+chrome.runtime.onMessage.addListener((request) => {
+	if (request.event === 'dictionary_reloaded') {
+		getValue('dictionary').then((d) => { dictionary = d || [] })
+	}
+	if (request.event === 'chatting_enabled' && request.login === streamer) {
+		onChattingEnabled()
+	}
+})
+window.addEventListener('message', (event) => {
+	if (event.data && event.data.type === 'twitchpicker_chatting_enabled' && event.source === window.parent) {
+		onChattingEnabled()
+	}
+})
 
 async function init() {
 	streamer = location.href.split('/')[3]
@@ -53,6 +74,8 @@ async function chat() {
 	        if (event.data.includes('Welcome')) {
 	        	socket.send('JOIN #'+streamer)
 	        	console.log('MessageSender was running '+streamer)
+	        	triggerSendMessage = ()=> sendMessage()
+	        	if (startChatWhenReady) startChatWhenReady = false
 	        	sendMessage()
 	        } else if (event.data == 'PING :tmi.twitch.tv\r\n') {
 	        	socket.send('PONG')
@@ -71,7 +94,10 @@ async function chat() {
 		let settings = await getValue('settings')
 		let minMs = (settings && settings.chat) ? settings.chat.min_interval : 500000
 		let maxMs = (settings && settings.chat) ? settings.chat.max_interval : 950000
-		await sleep(randomInt(minMs, maxMs))
+		let delay = randomInt(minMs, maxMs)
+		let nextAt = Date.now() + delay
+		chrome.runtime.sendMessage({ event: 'chat_next_at', login: streamer, nextAt })
+		await sleep(delay)
 		let addedChannels = await getValue('addedChannels')
 		let chatting = false
 		addedChannels.forEach((channel)=> {

@@ -55,9 +55,17 @@
                 <div class="setting-row">
                     <label>Частота авто-чата (сек)</label>
                     <div class="setting-inputs">
-                        <input type="number" id="chatMinSec" min="1" step="1" placeholder="мин">
-                        <span>—</span>
-                        <input type="number" id="chatMaxSec" min="1" step="1" placeholder="макс">
+                        <span class="setting-input-label">мин</span>
+                        <input type="number" id="chatMinSec" min="1" step="1" placeholder="500">
+                        <span class="setting-input-label">макс</span>
+                        <input type="number" id="chatMaxSec" min="1" step="1" placeholder="950">
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <label>Словарь фраз для авто-чата</label>
+                    <div class="setting-inputs">
+                        <button type="button" id="reloadDictionaryBtn" class="reload-dictionary-btn">Перезагрузить словарь</button>
+                        <button type="button" id="viewDictionaryBtn" class="reload-dictionary-btn">Просмотр словаря</button>
                     </div>
                 </div>
 			</div>

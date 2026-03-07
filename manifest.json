@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "TwitchPicker",
   "short_name": "TP",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "author": "Qworte",
   "description": "Автоматический фарм дропов и поинтов с твитча.\nМы не несем ответственность за сохранность ваших аккаунтов twitch.",
   "icons": {
@@ -36,6 +36,12 @@
     "declarativeNetRequest"
   ],
   "host_permissions": ["<all_urls>"],
+  "web_accessible_resources": [
+    {
+      "resources": ["dictionary.json"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "declarative_net_request": {
     "rule_resources": [
       {

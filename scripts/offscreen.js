@@ -37,6 +37,13 @@ function removeStreamIframe(name) {
     if (el) el.remove()
 }
 
+function reloadStreamIframe(name) {
+    const el = document.getElementById('iframe-' + name)
+    if (el) {
+        el.src = el.src
+    }
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.event === 'offscreen_sync') {
         ensureDropsIframe(!!request.dropsActive)
@@ -44,8 +51,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ ok: true })
         return true
     }
+    if (request.event === 'chatting_enabled' && request.login) {
+        const iframe = document.getElementById('iframe-' + request.login)
+        if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.postMessage({ type: 'twitchpicker_chatting_enabled' }, '*')
+        }
+    }
     if (request.event === 'offscreen_remove_iframe') {
         removeStreamIframe(request.name)
+        sendResponse({ ok: true })
+        return true
+    }
+    if (request.event === 'offscreen_reload_iframe') {
+        reloadStreamIframe(request.name)
         sendResponse({ ok: true })
         return true
     }
